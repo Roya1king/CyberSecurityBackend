@@ -1,7 +1,3 @@
-Here’s a fully combined and polished GitHub README that incorporates all the details, including the “How to Run Everything” guidance:
-
----
-
 # CyberSecurityBackend
 
 A Django-based backend for real-time network packet capture and analysis, using Redis, PostgreSQL, Kafka, and Django Channels.
