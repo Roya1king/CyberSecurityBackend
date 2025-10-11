@@ -26,7 +26,7 @@ def get_top_talkers(request, minutes_str):
         total_packets=Sum('packet_count')
     ).order_by(
         '-total_packets'
-    )[:10]) # Top 10
+    )[:100]) # Top 10
 
     return JsonResponse(top_talkers, safe=False)
 

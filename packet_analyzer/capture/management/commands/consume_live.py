@@ -14,13 +14,27 @@ class Command(BaseCommand):
             'packet_data',
             bootstrap_servers='localhost:9092',
             value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-            auto_offset_reset='latest',
-            group_id='live-feed-group' # Use a different group ID
+            auto_offset_reset='latest', # This is a good fallback
+            group_id='live-feed-group'
         )
         
         channel_layer = get_channel_layer()
         self.stdout.write(self.style.SUCCESS('▶️ Starting live feed consumer...'))
 
+        # ✅ --- START OF CHANGES --- ✅
+        
+        # 1. Force the consumer to connect and get partition assignments
+        # A short poll is the simplest way to trigger this.
+        self.stdout.write("Connecting to topic and seeking to end...")
+        consumer.poll(timeout_ms=1000) 
+
+        # 2. Move the read position to the very end of all assigned partitions
+        consumer.seek_to_end() 
+        self.stdout.write(self.style.SUCCESS('✅ Seek complete. Now listening for new packets.'))
+
+        # ✅ ---- END OF CHANGES ---- ✅
+
+        # The rest of your code remains the same
         for message in consumer:
             packet_data = message.value
             
