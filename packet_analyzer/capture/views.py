@@ -2,13 +2,12 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.utils import timezone
 from django.db.models import Sum
 from datetime import timedelta
-from .models import TrafficLog
+from .models import TrafficLog, SecurityAlert # Already correct
 import json
 from icmplib import ping, NameLookupError
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from .models import TrafficLog, SecurityAlert
-from django.core.paginator import Paginator
+from django.core.paginator import Paginator, EmptyPage
 
 
 def get_top_talkers(request, minutes_str):
@@ -21,17 +20,24 @@ def get_top_talkers(request, minutes_str):
 
     time_threshold = timezone.now() - timedelta(minutes=minutes)
     
+    # --- UPDATED QUERY ---
+    # We now group by the flow characteristics to find the "top services"
     top_talkers = list(TrafficLog.objects.filter(
         timestamp__gte=time_threshold
     ).values(
-        'source_ip'
+        'source_ip',
+        'dest_port',  # <-- NEW
+        'protocol'    # <-- NEW
     ).annotate(
         total_packets=Sum('packet_count')
     ).order_by(
         '-total_packets'
-    )[:100]) # Top 10
+    )[:100])
+    # --- END UPDATED QUERY ---
 
     return JsonResponse(top_talkers, safe=False)
+
+# In packet_analyzer/capture/views.py
 
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -64,28 +70,19 @@ def check_ip_health(request):
             'ip_address': ip_address,
             'is_alive': False,
             'error': 'Host not found (DNS lookup failed).'
-        }, status=404)
+        }, status=404)  # <-- THIS IS THE FIX
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
     
 def get_security_alerts(request):
-    """
-    Fetches the latest security alerts from the database,
-    with pagination.
-    """
-    # Get all alerts, ordered by most recent (from model's Meta)
+    # ... (This function remains unchanged) ...
     alert_list = SecurityAlert.objects.all()
-
-    # Get the page number from the query param, default to 1
     page_number = request.GET.get('page', 1)
-    
-    # Show 25 alerts per page
     paginator = Paginator(alert_list, 25)
 
     try:
         page_obj = paginator.page(page_number)
     except EmptyPage:
-        # If the page is out of range, return an empty list
         return JsonResponse({
             'total_alerts': paginator.count,
             'total_pages': paginator.num_pages,
@@ -93,8 +90,6 @@ def get_security_alerts(request):
             'alerts': []
         })
 
-    # Serialize the data for the current page
-    # We only select key fields to keep the payload clean
     alerts_data = list(page_obj.object_list.values(
         'id',
         'timestamp',
