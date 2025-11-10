@@ -7,6 +7,9 @@ import json
 from icmplib import ping, NameLookupError
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
+from .models import TrafficLog, SecurityAlert
+from django.core.paginator import Paginator
+
 
 def get_top_talkers(request, minutes_str):
     try:
@@ -64,3 +67,49 @@ def check_ip_health(request):
         }, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+    
+def get_security_alerts(request):
+    """
+    Fetches the latest security alerts from the database,
+    with pagination.
+    """
+    # Get all alerts, ordered by most recent (from model's Meta)
+    alert_list = SecurityAlert.objects.all()
+
+    # Get the page number from the query param, default to 1
+    page_number = request.GET.get('page', 1)
+    
+    # Show 25 alerts per page
+    paginator = Paginator(alert_list, 25)
+
+    try:
+        page_obj = paginator.page(page_number)
+    except EmptyPage:
+        # If the page is out of range, return an empty list
+        return JsonResponse({
+            'total_alerts': paginator.count,
+            'total_pages': paginator.num_pages,
+            'current_page': page_number,
+            'alerts': []
+        })
+
+    # Serialize the data for the current page
+    # We only select key fields to keep the payload clean
+    alerts_data = list(page_obj.object_list.values(
+        'id',
+        'timestamp',
+        'signature',
+        'severity',
+        'protocol',
+        'src_ip',
+        'src_port',
+        'dest_ip',
+        'dest_port'
+    ))
+
+    return JsonResponse({
+        'total_alerts': paginator.count,
+        'total_pages': paginator.num_pages,
+        'current_page': page_obj.number,
+        'alerts': alerts_data
+    })
