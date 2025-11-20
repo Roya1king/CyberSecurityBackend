@@ -1,6 +1,4 @@
-Here is the updated `README.md` for your project.
-
-It now includes the **Suricata security engine**, the **new alert pipeline**, and the **API endpoints** section, reflecting the 6-terminal setup we built.
+Here is the updated `README.md`. I have updated the **API Endpoints** section to include the specific filters for Threats and Policy Violations, and added a new **Verification & Testing** section with the commands we know work on your Windows setup.
 
 -----
 
@@ -28,8 +26,6 @@ Before running the project, ensure you have the following installed:
 
 This project requires a distributed setup of **six separate terminal windows** running simultaneously. Four of these terminals must be **Run as Administrator** to capture packets and access system logs.
 
------
-
 ### **Terminal 1: Start Infrastructure (Docker)**
 
 Start the core services (PostgreSQL, Kafka, Zookeeper):
@@ -48,8 +44,6 @@ In a separate tab, start the Redis server for Django Channels:
 docker run -p 6380:6379 -d redis:7
 ```
 
------
-
 ### **Terminal 2: Start Backend Consumers**
 
   * **Directory:** `...\network_api\packet_analyzer`
@@ -65,13 +59,11 @@ python manage.py consume_db
 # Tab 2: Process and stream live packets to WebSocket
 python manage.py consume_live
 
-# Tab 3 (NEW): Process and store security alerts
+# Tab 3: Process and store security alerts (IDS)
 python manage.py consume_alerts
 ```
 
 > These consumers read from Kafka and update the PostgreSQL database.
-
------
 
 ### **Terminal 3: Run the Django ASGI Server**
 
@@ -85,8 +77,6 @@ daphne -p 8000 packet_analyzer.asgi:application
 ```
 
 > Do **not** use `runserver`. Daphne is required for WebSocket support.
-
------
 
 ### **Terminal 4: Run the Packet Sniffer (Producer)**
 
@@ -103,8 +93,6 @@ sudo python packet_sniffer.py "<your_interface>"
 
 > This produces raw packet metadata to the `packet_data` Kafka topic.
 
------
-
 ### **Terminal 5: Start Suricata Security Engine**
 
   * **Access:** Must be **Run as Administrator**.
@@ -118,8 +106,6 @@ sudo python packet_sniffer.py "<your_interface>"
 ```
 
 > This runs the IDS, inspects all traffic against its rules, and writes alerts to `eve.json`.
-
------
 
 ### **Terminal 6: Run the Alert Producer**
 
@@ -160,11 +146,74 @@ Your frontend can fetch aggregated data and alerts from these REST API endpoints
       * Performs a live ping test on a given IP address.
       * **Body:** `{ "ip_address": "8.8.8.8" }`
 
-  * **GET `/api/security-alerts/`**
+  * **GET `/api/security-alerts/` (Master Log)**
 
-      * Gets the latest security alerts detected by Suricata, 25 per page.
-      * **Example:** `http://localhost:8000/api/security-alerts/`
-      * **Pagination:** `http://localhost:8000/api/security-alerts/?page=2`
+      * Gets all alerts detected by Suricata mixed together.
+
+  * **GET `/api/security-alerts/?type=threat` (High Severity)**
+
+      * Fetches only **Critical Threats** (Malware, SQL Injection, Attacks).
+      * **Use Case:** For the "Threats Detected" widget (Red Alerts).
+
+  * **GET `/api/security-alerts/?type=policy` (Low Severity)**
+
+      * Fetches only **Policy Violations** (VPNs, Gaming, P2P, Blocked Sites).
+      * **Use Case:** For the "Policy Violations" widget (Yellow/Green Alerts).
+
+-----
+
+## 🧪 Verification & Testing
+
+To ensure the system is working, run these commands in **PowerShell** to trigger specific alerts.
+
+### 1\. Test Threat Detection (Severity: High)
+
+These commands simulate malicious attacks. They should appear in the **Threats Detected** widget.
+
+**Simulate SQL Injection / Root Access Attempt:**
+
+```powershell
+curl.exe "http://testmynids.org/uid=0(root)"
+```
+
+  * **Result:** Alert `GPL ATTACK_RESPONSE id check returned root`
+
+**Simulate Malware Communication (BlackSun User-Agent):**
+
+```powershell
+curl.exe -A "BlackSun" http://google.com
+```
+
+  * **Result:** Alert `THREAT DETECTED: Known Malware User-Agent (BlackSun)`
+
+### 2\. Test Policy Violations (Severity: Low/Medium)
+
+These commands simulate unwanted but non-malicious traffic. They should appear in the **Policy Violations** widget.
+
+**Simulate Discord Usage:**
+
+```powershell
+nslookup discord.com
+```
+
+  * **Result:** Alert `POLICY VIOLATION: Discord DNS Lookup`
+
+**Simulate Manual Policy Test:**
+
+```powershell
+curl.exe http://test.com/policy-test
+```
+
+  * **Result:** Alert `POLICY TEST: Manual Trigger`
+
+**Simulate OpenVPN (Port Check):**
+
+```powershell
+# Requires Netcat (nc) or similar tool, or just attempting to connect via VPN client
+# This checks UDP port 1194
+```
+
+  * **Result:** Alert `POLICY VIOLATION: OpenVPN Port 1194 Traffic`
 
 -----
 
@@ -177,4 +226,4 @@ With this setup, you can:
   * **Feed security alerts into a dedicated Kafka pipeline.**
   * Store both packet metadata and security alerts in PostgreSQL.
   * Stream live packet data via WebSockets.
-  * **Expose a full API for a frontend dashboard to visualize network health and security alerts.**
+  * **Expose a filtered API to distinguish between high-priority Threats and internal Policy Violations.**
