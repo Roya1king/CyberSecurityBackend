@@ -1,229 +1,314 @@
-Here is the updated `README.md`. I have updated the **API Endpoints** section to include the specific filters for Threats and Policy Violations, and added a new **Verification & Testing** section with the commands we know work on your Windows setup.
-
------
-
 # CyberSecurityBackend
 
-A Django-based backend for real-time network packet capture and analysis. It uses Suricata for deep packet inspection (DPI) and a Kafka pipeline (PostgreSQL, Redis, Django Channels) to process, store, and stream both network metadata and security alerts.
+### Real-Time Network Packet Capture, DPI (Suricata IDS), Kafka Pipeline, and Security Analytics Dashboard
 
------
+This project provides a complete cybersecurity monitoring backend built with **Django**, **Kafka**, **PostgreSQL**, **Redis**, and **Suricata IDS**, capable of:
 
-## Prerequisites
+✔ Capturing live network packets  
+✔ Performing **Deep Packet Inspection (DPI)**  
+✔ Detecting **Threats** and **Policy Violations**  
+✔ Streaming live packets via WebSockets  
+✔ Storing alerts + traffic logs in PostgreSQL  
+✔ Providing REST APIs for dashboards  
 
-Before running the project, ensure you have the following installed:
+---
 
-  * Docker & Docker Compose
-  * Python 3.10+
-  * Virtual Environment (`venv`)
-  * **Suricata** (IDS/IPS Engine)
-  * Kafka (Handled by Docker Compose)
-  * PostgreSQL (Handled by Docker Compose)
-  * Redis
+# 📦 Project Architecture
 
------
+```
+Suricata (IDS) ─────► eve.json ──► alert_producer.py ──► Kafka(topic=security_alerts)
+Packet Sniffer ─────► packet_sniffer.py ────────────────► Kafka(topic=packet_data)
 
-## Setup and Run
+Kafka ──────────────► Django Consumers ───────────────► PostgreSQL  
+                                       │
+                                       ▼
+                                   WebSockets
+```
 
-This project requires a distributed setup of **six separate terminal windows** running simultaneously. Four of these terminals must be **Run as Administrator** to capture packets and access system logs.
+---
 
-### **Terminal 1: Start Infrastructure (Docker)**
+# 🛠️ Prerequisites
 
-Start the core services (PostgreSQL, Kafka, Zookeeper):
+### System Requirements
+* Windows 10/11  
+* **Npcap** (WinPcap-compatible mode)  
+* **Suricata IDS**  
+* **Docker + Docker Compose**  
+* Python 3.10+  
+* Redis  
+* PostgreSQL  
+* Kafka + Zookeeper  
+
+---
+
+# 🗄️ Database Setup (PostgreSQL)
+
+## Option A — Docker (Recommended)
+
+```yaml
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    container_name: packet_postgres
+    environment:
+      - POSTGRES_DB=packetdb
+      - POSTGRES_USER=packetuser
+      - POSTGRES_PASSWORD=12345678
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Add zookeeper + kafka in this file as required
+
+volumes:
+  postgres_data:
+```
+
+Start services:
 
 ```bash
-# Navigate to the project root (where docker-compose.yml is)
-cd C:\Users\Dell\Desktop\Basic Project\CS_PROJECT\network_api
-
-# Start services
 docker-compose up -d
 ```
 
-In a separate tab, start the Redis server for Django Channels:
+Start Redis:
 
 ```bash
 docker run -p 6380:6379 -d redis:7
 ```
 
-### **Terminal 2: Start Backend Consumers**
+---
 
-  * **Directory:** `...\network_api\packet_analyzer`
-  * **Action:** Activate your venv (`.\venv\Scripts\activate`)
-  * **Note:** Run each command in a **separate tab**.
+## Option B — Manual PostgreSQL Setup
 
-<!-- end list -->
+```sql
+CREATE DATABASE packetdb;
+CREATE USER packetuser WITH PASSWORD '12345678';
+GRANT ALL PRIVILEGES ON DATABASE packetdb TO packetuser;
+```
+
+---
+
+# ⚙️ Apply Migrations
 
 ```bash
-# Tab 1: Process and store packet metadata
+cd packet_analyzer
+python manage.py makemigrations
+python manage.py migrate
+```
+
+---
+
+# 🚀 Running the Backend (Requires Multiple Terminals)
+
+## **Terminal 1 — Start Docker Infrastructure**
+
+```bash
+docker-compose up -d
+docker run -p 6380:6379 -d redis:7
+```
+
+---
+
+## **Terminal 2 — Django Kafka Consumers (3 tabs)**
+
+```bash
 python manage.py consume_db
-
-# Tab 2: Process and stream live packets to WebSocket
 python manage.py consume_live
-
-# Tab 3: Process and store security alerts (IDS)
 python manage.py consume_alerts
 ```
 
-> These consumers read from Kafka and update the PostgreSQL database.
+---
 
-### **Terminal 3: Run the Django ASGI Server**
-
-  * **Directory:** `...\network_api\packet_analyzer`
-  * **Action:** Activate your venv.
-
-<!-- end list -->
+## **Terminal 3 — ASGI Server**
 
 ```bash
 daphne -p 8000 packet_analyzer.asgi:application
 ```
 
-> Do **not** use `runserver`. Daphne is required for WebSocket support.
+---
 
-### **Terminal 4: Run the Packet Sniffer (Producer)**
+## **Terminal 4 — Packet Sniffer (Producer)**
 
-  * **Access:** Must be **Run as Administrator**.
-  * **Directory:** `...\network_api` (Project Root)
-  * **Action:** Activate your venv (`.\packet_analyzer\venv\Scripts\activate`)
-
-<!-- end list -->
 
 ```bash
-# Replace <your_interface> with the name from "ipconfig" (e.g., "Wi-Fi")
-sudo python packet_sniffer.py "<your_interface>"
+python packet_sniffer.py <YOUR_INTERFACE>
+
 ```
 
-> This produces raw packet metadata to the `packet_data` Kafka topic.
+---
 
-### **Terminal 5: Start Suricata Security Engine**
+## **Terminal 5 — Suricata IDS Engine**
+Run as Administrator:
 
-  * **Access:** Must be **Run as Administrator**.
-  * **Directory:** `C:\Program Files\Suricata`
-
-<!-- end list -->
-
-```bash
-# Replace with your actual IP address
-.\suricata.exe -c suricata.yaml -i 10.228.212.153
+```powershell
+"C:\Program Files\Suricata\suricata.exe" -c suricata.yaml -i <YOUR_IP>
 ```
 
-> This runs the IDS, inspects all traffic against its rules, and writes alerts to `eve.json`.
+---
 
-### **Terminal 6: Run the Alert Producer**
-
-  * **Access:** Must be **Run as Administrator**.
-  * **Directory:** `...\network_api` (Project Root)
-  * **Action:** Activate your venv (`.\packet_analyzer\venv\Scripts\activate`)
-
-<!-- end list -->
+## **Terminal 6 — Alert Producer**
 
 ```bash
-# This script "tails" the eve.json log and produces alerts to Kafka
 python alert_producer.py
 ```
 
-> This script reads Suricata's `eve.json` log file in real-time and produces new alerts to the `security_alerts` Kafka topic.
+---
 
------
+# 🌐 API Endpoints
 
-## 📡 Accessing Data
-
-### Live Packet Feed (WebSocket)
-
-Connect any WebSocket client to this endpoint to see a live JSON feed of network packets (sourced from `consume_live`).
-
+### **Live Packets (WebSocket)**  
 `ws://localhost:8000/ws/live-packets/`
 
-### API Endpoints (HTTP)
+### **Top Talkers**  
+`GET /api/top-talkers/<minutes>/`
 
-Your frontend can fetch aggregated data and alerts from these REST API endpoints.
+### **IP Health Check**  
+`POST /api/ip-health/`
 
-  * **GET `/api/top-talkers/<minutes>/`**
+### **Security Alerts**  
+* All alerts → `/api/security-alerts/`  
+* Only threats → `/api/security-alerts/?type=threat`  
+* Only policy violations → `/api/security-alerts/?type=policy`  
 
-      * Gets a list of the top 100 most active source IPs over the last `X` minutes.
-      * **Example:** `http://localhost:8000/api/top-talkers/60/`
+---
 
-  * **POST `/api/ip-health/`**
+# 🛡️ Suricata IDS – Windows Setup
 
-      * Performs a live ping test on a given IP address.
-      * **Body:** `{ "ip_address": "8.8.8.8" }`
+This project ships a full Suricata configuration optimized for Windows.
 
-  * **GET `/api/security-alerts/` (Master Log)**
+## 📂 Contents
 
-      * Gets all alerts detected by Suricata mixed together.
+- `suricata.yaml` → Full configuration  
+- `rules/custom.rules` → custom signatures (VPN, SQLi, Malware UA, DNS triggers)  
 
-  * **GET `/api/security-alerts/?type=threat` (High Severity)**
+---
 
-      * Fetches only **Critical Threats** (Malware, SQL Injection, Attacks).
-      * **Use Case:** For the "Threats Detected" widget (Red Alerts).
+## 🖥️ Prerequisites
 
-  * **GET `/api/security-alerts/?type=policy` (Low Severity)**
+### 1. Install **Npcap**
+Must check:
 
-      * Fetches only **Policy Violations** (VPNs, Gaming, P2P, Blocked Sites).
-      * **Use Case:** For the "Policy Violations" widget (Yellow/Green Alerts).
+✔ "Install Npcap in WinPcap API-compatible Mode"
 
------
+### 2. Install Suricata (Windows MSI)
 
-## 🧪 Verification & Testing
+---
 
-To ensure the system is working, run these commands in **PowerShell** to trigger specific alerts.
+## 📁 Place Configuration Files
 
-### 1\. Test Threat Detection (Severity: High)
+Copy:
 
-These commands simulate malicious attacks. They should appear in the **Threats Detected** widget.
-
-**Simulate SQL Injection / Root Access Attempt:**
-
-```powershell
-curl.exe "http://testmynids.org/uid=0(root)"
+```
+suricata.yaml → C:\Program Files\Suricata\
+custom.rules → C:\Program Files\Suricata\rules\
 ```
 
-  * **Result:** Alert `GPL ATTACK_RESPONSE id check returned root`
+---
 
-**Simulate Malware Communication (BlackSun User-Agent):**
+## 🔍 Find Your Interface
 
-```powershell
+```
+"C:\Program Files\Suricata\suricata.exe" --list-iface
+```
+
+---
+
+## ▶ Start Suricata
+
+```
+"C:\Program Files\Suricata\suricata.exe" -c suricata.yaml -i <YOUR_IP>
+```
+
+---
+
+# 🧾 Custom Ruleset Overview
+
+### **Policy Violations (1000xxx SIDs)**  
+Non-malicious but undesirable traffic:
+
+| Service | SID | Method |
+|--------|-----|--------|
+| BitTorrent | 1000001 | Pattern |
+| OpenVPN DPI | 1000002 | app-layer-protocol |
+| Tor | 1000003 | DPI |
+| Discord | 1000004 | DNS |
+| Crypto Mining | 1000006 | DNS |
+| OpenVPN Port | 1000008 | Port 1194 |
+| WireGuard | 1000009 | DPI |
+| NordVPN | 1000010 | DNS |
+| ExpressVPN | 1000011 | DNS |
+
+---
+
+### **Threat Detection (2000xxx SIDs)**  
+Actual malicious patterns:
+
+| Threat | SID | Logic |
+|--------|-----|--------|
+| SQL Injection | 2000001 | `OR 1=1` |
+| Malware User-Agent | 2000004 | BlackSun |
+| C2 Beacon | 2000005 | DNS |
+| Nmap Xmas Scan | 2000006 | Flags |
+
+---
+
+# 🧪 Testing Suricata Alerts
+
+### **1. Test Malware (Threat)**
+
+```
 curl.exe -A "BlackSun" http://google.com
 ```
 
-  * **Result:** Alert `THREAT DETECTED: Known Malware User-Agent (BlackSun)`
+Expected: Malware Alert
 
-### 2\. Test Policy Violations (Severity: Low/Medium)
+---
 
-These commands simulate unwanted but non-malicious traffic. They should appear in the **Policy Violations** widget.
+### **2. Test SQL Injection**
 
-**Simulate Discord Usage:**
+```
+curl "http://testphp.vulnweb.com/artists.php?artist=1+OR+1=1"
+```
 
-```powershell
+---
+
+### **3. Test Policy Violation (Discord)**
+
+```
 nslookup discord.com
 ```
 
-  * **Result:** Alert `POLICY VIOLATION: Discord DNS Lookup`
+---
 
-**Simulate Manual Policy Test:**
+# 📊 Logs
 
-```powershell
-curl.exe http://test.com/policy-test
+Located at:
+
+```
+C:\Program Files\Suricata\log\
 ```
 
-  * **Result:** Alert `POLICY TEST: Manual Trigger`
+- `fast.log` - readable alerts  
+- `eve.json` - full JSON alerts (used by your Kafka producer)  
+- `stats.log` - performance  
 
-**Simulate OpenVPN (Port Check):**
+---
 
-```powershell
-# Requires Netcat (nc) or similar tool, or just attempting to connect via VPN client
-# This checks UDP port 1194
+# ❗ Troubleshooting
+
+### ❌ Error: missing **wpcap.dll**
+
+Reinstall Npcap → enable "WinPcap Compatible Mode"
+
+### ❌ Error: "emerging-all.rules" missing
+
+Comment out this line in `suricata.yaml`:
+
+```yaml
+- emerging-all.rules
 ```
 
-  * **Result:** Alert `POLICY VIOLATION: OpenVPN Port 1194 Traffic`
-
------
-
-### **Summary**
-
-With this setup, you can:
-
-  * Capture, process, and store all network traffic live.
-  * **Perform deep packet inspection (DPI) using Suricata to detect threats.**
-  * **Feed security alerts into a dedicated Kafka pipeline.**
-  * Store both packet metadata and security alerts in PostgreSQL.
-  * Stream live packet data via WebSockets.
-  * **Expose a filtered API to distinguish between high-priority Threats and internal Policy Violations.**
+---

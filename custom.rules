@@ -1,0 +1,100 @@
+# ======================================================================
+# SECTION A: POLICY VIOLATIONS
+# Description: Non-malicious but unwanted behavior (Gaming, VPNs, P2P)
+# Backend Filter: Look for classtype:policy-violation
+# ======================================================================
+
+# --- A.1: Forbidden Protocols (DPI & Port Fallbacks) ---
+
+# 1. Detect OpenVPN (DPI - TCP & UDP)
+# Changed 'tcp' to 'ip' to catch both Transport protocols
+alert ip any any -> any any (msg:"POLICY VIOLATION: OpenVPN Protocol Detected (DPI)"; \
+    app-layer-protocol:openvpn; \
+    sid:1000002; rev:3; classtype:policy-violation;)
+
+# 2. Detect OpenVPN (Port Fallback)
+# Catches it even if DPI fails to identify the handshake immediately
+alert udp $HOME_NET any -> $EXTERNAL_NET 1194 (msg:"POLICY VIOLATION: OpenVPN Port 1194 Traffic"; \
+    sid:1000008; rev:1; classtype:policy-violation;)
+
+# 3. Detect WireGuard (DPI)
+# Added this back in. WireGuard is almost always UDP.
+alert udp any any -> any any (msg:"POLICY VIOLATION: WireGuard VPN Detected"; \
+    app-layer-protocol:wireguard; \
+    sid:1000009; rev:1; classtype:policy-violation;)
+
+# 4. Detect Tor Browser (DPI)
+alert tcp any any -> any any (msg:"POLICY VIOLATION: Tor Anonymizer Traffic"; \
+    app-layer-protocol:tor; \
+    sid:1000003; rev:2; classtype:policy-violation;)
+
+# 5. Detect BitTorrent (P2P)
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"POLICY VIOLATION: BitTorrent Protocol Detected"; \
+    content:"|13|BitTorrent protocol"; fast_pattern; \
+    sid:1000001; rev:2; classtype:policy-violation;)
+
+
+# --- A.2: Forbidden Websites (DNS/HTTP) ---
+
+# Detect VPN Provider DNS Lookups (Commercial VPNs)
+alert udp $HOME_NET any -> any 53 (msg:"POLICY VIOLATION: NordVPN DNS Lookup"; \
+    content:"|07|nordvpn|03|com|00|"; fast_pattern; \
+    sid:1000010; rev:1; classtype:policy-violation;)
+
+alert udp $HOME_NET any -> any 53 (msg:"POLICY VIOLATION: ExpressVPN DNS Lookup"; \
+    content:"|0a|expressvpn|03|com|00|"; fast_pattern; \
+    sid:1000011; rev:1; classtype:policy-violation;)
+
+# Detect Discord (Gaming/Chat)
+alert udp $HOME_NET any -> any 53 (msg:"POLICY VIOLATION: Discord DNS Lookup"; \
+    content:"|07|discord|03|com|00|"; fast_pattern; \
+    sid:1000004; rev:1; classtype:policy-violation;)
+
+# Detect Pornography Keyword
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"POLICY VIOLATION: Adult Content Keyword in Host"; \
+    http.host; content:"sex"; fast_pattern; \
+    sid:1000005; rev:1; classtype:policy-violation;)
+
+# Detect Crypto Mining
+alert udp $HOME_NET any -> any 53 (msg:"POLICY VIOLATION: Crypto Mining Site Lookup"; \
+    content:"|08|nicehash|03|com|00|"; fast_pattern; \
+    sid:1000006; rev:1; classtype:policy-violation;)
+
+# --- A.3: General Policy Testing ---
+
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"POLICY TEST: Manual Trigger"; \
+    http.uri; content:"policy-test"; fast_pattern; \
+    sid:1000007; rev:1; classtype:policy-violation;)
+
+# ======================================================================
+# SECTION B: THREAT DETECTION
+# Description: Malicious attacks, malware, scanning, and exploitation.
+# Backend Filter: Look for classtype:web-application-attack, attempted-admin, etc.
+# ======================================================================
+
+# --- B.1: Malware / Trojan Indicators ---
+
+# TEST RULE: Known Malware User-Agent (BlackSun)
+# This is the specific rule needed for your "curl -A BlackSun" test.
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"THREAT DETECTED: Known Malware User-Agent (BlackSun)"; \
+    http.user_agent; content:"BlackSun"; fast_pattern; \
+    sid:2000004; rev:2; classtype:trojan-activity;)
+
+# DNS Query for Known C2 Domain (Simulation)
+alert udp $HOME_NET any -> any 53 (msg:"THREAT DETECTED: Botnet C2 Domain Lookup"; \
+    content:"|0e|evil-c2-server|03|com|00|"; fast_pattern; \
+    sid:2000005; rev:1; classtype:trojan-activity;)
+
+# --- B.2: Web Attacks ---
+
+# SQL Injection Attempt
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"THREAT DETECTED: SQL Injection Attempt"; \
+    http.uri; content:"OR 1=1"; fast_pattern; \
+    sid:2000001; rev:1; classtype:web-application-attack;)
+
+# --- B.3: Network Scanning ---
+
+# Nmap Xmas Scan
+alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"THREAT DETECTED: Nmap Xmas Scan"; \
+    flags:FPU; \
+    sid:2000006; rev:1; classtype:attempted-recon;)
